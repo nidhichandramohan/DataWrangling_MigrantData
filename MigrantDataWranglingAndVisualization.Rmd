@@ -1,0 +1,270 @@
+---
+title: "Migrant Data Wrangling and Visualizations"
+author: "Nidhi Chandramohan"
+date: "10/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE)
+```
+## Data Source and  Characteristics
+
+The data set presents estimates of international migrant by age, sex and origin. Estimates are presented for 1990, 1995, 2000, 2005, 2010, 2015 and 2019 and are available for all countries and areas of the world. The estimates are based on official statistics on the foreign-born or the foreign population.
+
+Using two data sheets ( Taking only one sheet from main excel file)
+
+1) Containing main data with total migrant numbers between origin and Destination countries
+
+    Link to Data set :     https://www.un.org/en/development/desa/population/migration/data/estimates2/estimates19.asp
+
+2) Used to map countries to Regions
+
+    Link to country-region Data set :
+https://unstats.un.org/unsd/methodology/m49/overview/
+
+Variables :
+
+1. Year - Year of migration
+
+2. Destination - Destination Country of migrants
+
+3. Origin - Origin Country of migrants( This is scattered across columns )
+
+4. Type of Destination or Origin - Indicates whether country is Developed or Developing 
+
+Note : Data Source and description taken from UN
+
+## Load Data 
+
+Before loading : Excluded the top 14 rows ( containing UN logo and other descriptive details before loading)
+
+```{r dataload}
+# Remove old files from environment
+rm(list = ls())
+
+# Load libraries
+library(tidyverse)
+library(kableExtra)
+library(ggthemes)
+
+# Read csv files
+DF_Migrant <- read.csv("MigrantDataWranglingAndVisualization-1.csv")
+DF_Country <- read.csv("MigrantDataWranglingAndVisualization-2.csv")
+```
+
+
+## Showing the Violation of tidy data principle for this data set
+
+### Display first few files and view the dataframe
+
+-  The variable should be "Origin Country" of migrants. 
+-  Instead we have all countries scattered across columns.(Please scroll few columns to  the right)
+
+- Dataset violates tidy data principle "Each variable must have its own column"
+
+```{r viewdata}
+head(DF_Migrant, n = 50) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("bordered","striped","hover","condensed","responsive")) %>% scroll_box(width="100%",height="300px")
+```
+## Other Observations from viewing the dataset
+- Dataset contains some unnecessary columns ( columns 4 to 9 [notes,code,type of data,total,other.North,other.South])
+
+- Some columns like 3rd column needs to be renamed for ease of use
+
+- There are empty values in many cells which also has to be removed later
+
+
+## Renaming some columns and drop rows with empty values in 'TypeOfData' column
+
+#### Need to drop these before Tidy
+
+- TypeOfData - specifies what type of region is there in Destination column ( If its empty those rows are not that of any country. So need to filter out those ) . 
+- Top few rows which contained totals ( not to any specific country also had to be removed )
+
+```{r datacheck}
+# Rename columns for ease of use
+colnames(DF_Migrant)[3] <- "Destination_Country"
+colnames(DF_Migrant)[6] <- "TypeOfData"
+
+# Dropping unnecessary rows 
+DF_Migrant <- DF_Migrant %>% filter(TypeOfData != '')
+
+# Removing columns which are not needed
+DF_Migrant <- DF_Migrant[-c(4,5,6,7,8,9)]
+```
+
+## Tidy the data using pivot_longer and display the result
+* Transform the wider data to narrow/long using pivot_longer
+
+* Country of origin of migrants ( scattered across columns ) now made to one variable "CountryOfOrigin"
+
+* Values in those columns ( Here number of migrants ) moved to column "n_Migrants" 
+
+Please note : Top rows might have empty values for n_Migrants.( Will be cleaned up in next step)
+
+```{r tidyData}
+# Converting data frame to tibble and using pivot_longer for transformation
+
+tib <- tibble(DF_Migrant,)
+tib <- tib %>%
+  pivot_longer(-c(Year,Sort.order,Destination_Country),
+               names_to = "Origin_Country", 
+               values_to = "n_Migrants")
+DF_Migrant <- data.frame(tib)
+
+# Display the data after tidying
+
+head(DF_Migrant, n = 50) %>% kable() %>%
+  kable_styling(bootstrap_options = c("bordered","striped","hover","condensed","responsive")) %>% scroll_box(width="100%",height="300px")
+
+```
+
+## Some more clean up with data
+
+- Replace "," in n_Migrants before converting to numeric
+- Replace "." in country names as it will be used for mapping with regions
+- Filter out empty cells and zero values in "n_Migrants"
+- convert "n_Migrants" to numeric
+
+```{r cleanData}
+# Clean up 
+DF_Migrant$n_Migrants <- str_replace_all(DF_Migrant$n_Migrants, "\\,","")
+DF_Migrant$Origin_Country <- str_replace_all(DF_Migrant$Origin_Country, "\\."," ")
+DF_Migrant <- DF_Migrant %>% filter(n_Migrants != '')
+DF_Migrant$n_Migrants <- as.numeric(DF_Migrant$n_Migrants)
+DF_Migrant <- DF_Migrant %>% filter(n_Migrants > 0)
+
+
+# Display the data after clean up
+head(DF_Migrant) %>% kable() %>%
+  kable_styling(bootstrap_options = c("bordered","striped","hover","condensed","responsive")) %>% scroll_box(width="100%",height="300px")
+
+
+```
+
+## Joining with the UN Country-Region mapping data frame
+
+- Join with another data frame and find the regions/continents of each country 
+
+- Remove unnecessary columns after join
+
+```{r joinData}
+### Join and Find out Continent of Destination and Origin Countries
+
+DF_Migrant <- DF_Migrant %>% inner_join(DF_Country, by = c("Destination_Country" = "Country.or.Area"))
+DF_Migrant <- DF_Migrant[c(1,2,3,4,5,9,20)]
+colnames(DF_Migrant)[6] <- "Destination_Region"
+colnames(DF_Migrant)[7] <- "Destination_Country_Type"
+
+DF_Migrant <- DF_Migrant %>% inner_join(DF_Country, by = c("Origin_Country" = "Country.or.Area"))
+DF_Migrant <- DF_Migrant[c(1,2,3,4,5,6,7,11,22)]
+colnames(DF_Migrant)[8] <- "Origin_Region"
+colnames(DF_Migrant)[9] <- "Origin_Country_Type"
+```
+
+## Display and show data after tidy and other clean ups
+
+```{r dataInspect}
+head(DF_Migrant) %>% kable() %>% kable_styling(bootstrap_options = c("bordered","striped","hover","condensed","responsive")) %>% scroll_box(width="100%",height="300px")
+```
+
+
+# Visualization of migrant count by year
+ 
+
+```{r dataVisualization1}
+# Create summary table ( By year )
+DF_Summary_1 <- DF_Migrant %>% 
+  group_by(Year) %>% 
+  summarise(Migrant_Count = sum(n_Migrants)) %>% 
+  mutate(Migrant_Count = Migrant_Count/1000000) 
+
+# create the plot using ggplot 
+ggplot(data=DF_Summary_1, 
+	aes(x=Year,y= Migrant_Count, group=1)) +
+	geom_line() +
+  geom_point(colour = "Blue") +
+  theme_economist() +
+	scale_color_gdocs() +
+	ggtitle("Immigration Trend (1990-2019)") +
+	geom_text(aes(label=paste0(round(Migrant_Count,0),"M")), vjust=-2, color="black", 
+		position = position_dodge(0.9), size=1.75) 
+```
+
+
+# Visualization by Destination_Country for 2019
+
+```{r dataVisualization2}
+# Create summary ( by Destination country for year 2019 ) table
+DF_Summary_2 <- DF_Migrant %>% 
+  filter(Year == 2019) %>%
+  group_by(Destination_Country) %>% 
+  summarise(Migrant_Count = sum(n_Migrants))  %>% 
+  mutate(Migrant_Count = Migrant_Count/1000000) %>%
+  arrange(desc(Migrant_Count))
+
+# Take top destinations from sorted summary table
+topDestinations <- head(DF_Summary_2)
+
+# Create plot
+ggplot(topDestinations, 
+	aes(x = Destination_Country, y = Migrant_Count)) +
+	geom_bar(stat = "identity", position = "dodge") +
+	geom_text(aes(label=paste(round(Migrant_Count,1),"M")), vjust=-0.7,color="black", position = position_dodge(1), size=2.5) +
+	theme_economist() +
+	scale_color_gdocs() +
+	theme(axis.text.x=element_text(angle = 30, vjust = 0.5)) +
+	theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+	ggtitle("Top Destinations of Migration (2019)") +
+	xlab("Destination Country") +
+	ylab ("Migrant Count(in Millions)") 
+
+```
+
+# Additional Plot 
+## Visualization by Year and Destination Region
+
+```{r dataVisualization3}
+# Create summary by year and destination region
+DF_Summary_3 <- DF_Migrant %>% 
+  group_by(Year, Destination_Region) %>%
+  summarise(Migrant_Count = sum(n_Migrants))  %>% 
+  mutate(Migrant_Count = Migrant_Count/1000000)
+
+# Create plot from above table
+ggplot(DF_Summary_3) +
+  aes(x = Destination_Region, y = Migrant_Count, fill = as.character(Year)) +
+	geom_bar(stat = "identity", position = "dodge") +
+	geom_text(aes(label=paste(round(Migrant_Count,1),"M")), vjust=-0.7,color="black", position = position_dodge(1), size=2) +
+  theme_economist () +
+	scale_fill_brewer(palette = "Blues") +
+	theme(axis.text.x=element_text(angle = 0, vjust = 0.5)) +
+	theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+	ggtitle("Migration Trend by Destination_Region (1990-2019)") +
+	xlab("Destination_Region") +
+	ylab ("Migrant Count(in Millions)") 
+	
+
+```
+
+
+
+# Patterns or Observations from Visualizations
+
+Plot 1. Immigration across countries has seen steady increase in the past 3 decades
+
+Plot 2. From latest data ( year = 2019 )United states is the popular destination and Germany is second 
+
+### Observations from Additional Plot 
+From Plot 3.
+
+* From 1990 to 2019 Immigration numbers are nearly doubled. Americas has more than double immigrants in 2019 compared to 1990s. 
+
+* Africas has less immigration count increase compared to other regions
+
+
+```{r dataDescription}
+
+```
